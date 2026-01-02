@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>A* Pathfinding Simulator</title>
+    <style>
+        body { font-family: sans-serif; background-color: #f0f2f5; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+        h1 { margin-bottom: 10px; color: #333; }
+        .controls { margin-bottom: 15px; text-align: center; }
+        .legend { display: flex; gap: 15px; margin-bottom: 15px; font-size: 14px; }
+        .legend-item { display: flex; align-items: center; gap: 5px; }
+        .box { width: 15px; height: 15px; border: 1px solid #ccc; }
+        canvas { background-color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); cursor: crosshair; }
+        button { padding: 10px 20px; font-size: 16px; cursor: pointer; background-color: #4CAF50; color: white; border: none; border-radius: 5px; }
+        button:hover { background-color: #45a049; }
+        button.reset { background-color: #f44336; margin-left: 10px; }
+        button.reset:hover { background-color: #d32f2f; }
+    </style>
+</head>
+<body>
+    <h1>🚀 A* 최단 경로 탐색 시뮬레이터</h1>
+    <div class="legend">
+        <div class="legend-item"><div class="box" style="background:orange"></div>시작</div>
+        <div class="legend-item"><div class="box" style="background:turquoise"></div>도착</div>
+        <div class="legend-item"><div class="box" style="background:black"></div>벽</div>
+        <div class="legend-item"><div class="box" style="background:green"></div>탐색</div>
+        <div class="legend-item"><div class="box" style="background:purple"></div>경로</div>
+    </div>
+    <div class="controls">
+        <p>좌클릭: 설치 | 우클릭: 지우기</p>
+        <button onclick="startAlgorithm()">탐색 시작 (Space)</button>
+        <button class="reset" onclick="resetGrid()">초기화 (C)</button>
+    </div>
+    <canvas id="gridCanvas" width="600" height="600"></canvas>
+<script>
+    const canvas = document.getElementById("gridCanvas");
+    const ctx = canvas.getContext("2d");
+    const ROWS = 50, SIZE = 600, GAP = SIZE / ROWS;
+    let grid = [], startNode = null, endNode = null, isRunning = false;
+
+    class Node {
+        constructor(row, col) {
+            this.row = row; this.col = col;
+            this.x = col * GAP; this.y = row * GAP;
+            this.color = "white"; this.neighbors = [];
+            this.g = Infinity; this.f = Infinity; this.previous = null;
+        }
+        draw() { ctx.fillStyle = this.color; ctx.fillRect(this.x, this.y, GAP-1, GAP-1); }
+        updateNeighbors(grid) {
+            this.neighbors = [];
+            const r = this.row, c = this.col;
+            if (r < ROWS-1 && grid[r+1][c].color !== "black") this.neighbors.push(grid[r+1][c]);
+            if (r > 0 && grid[r-1][c].color !== "black") this.neighbors.push(grid[r-1][c]);
+            if (c < ROWS-1 && grid[r][c+1].color !== "black") this.neighbors.push(grid[r][c+1]);
+            if (c > 0 && grid[r][c-1].color !== "black") this.neighbors.push(grid[r][c-1]);
+        }
+    }
+    function initGrid() {
+        grid = [];
+        for (let i = 0; i < ROWS; i++) {
+            grid[i] = [];
+            for (let j = 0; j < ROWS; j++) { grid[i][j] = new Node(i, j); }
+        }
+        drawGrid();
+    }
+    function drawGrid() {
+        ctx.fillStyle = "#ccc"; ctx.fillRect(0, 0, SIZE, SIZE);
+        for (let i = 0; i < ROWS; i++) for (let j = 0; j < ROWS; j++) grid[i][j].draw();
+    }
+    function getMousePos(evt) {
+        const rect = canvas.getBoundingClientRect();
+        return { row: Math.floor((evt.clientY - rect.top)/GAP), col: Math.floor((evt.clientX - rect.left)/GAP) };
+    }
+    let isMouseDown = false, isRightClick = false;
+    canvas.addEventListener('mousedown', (e) => { if(isRunning) return; isMouseDown=true; isRightClick=e.button===2; handleMouse(e); });
+    canvas.addEventListener('mousemove', (e) => { if(isMouseDown && !isRunning) handleMouse(e); });
+    window.addEventListener('mouseup', () => isMouseDown = false);
+    canvas.addEventListener('contextmenu', e => e.preventDefault());
+    function handleMouse(e) {
+        const { row, col } = getMousePos(e);
+        if (row < 0 || row >= ROWS || col < 0 || col >= ROWS) return;
+        const node = grid[row][col];
+        if (isRightClick) {
+            node.color = "white";
+            if (node === startNode) startNode = null;
+            if (node === endNode) endNode = null;
+        } else {
+            if (!startNode && node !== endNode) { startNode = node; node.color = "orange"; }
+            else if (!endNode && node !== startNode) { endNode = node; node.color = "turquoise"; }
+            else if (node !== startNode && node !== endNode) { node.color = "black"; }
+        }
+        node.draw();
+    }
+    window.addEventListener('keydown', (e) => { if(e.code==='Space' && !isRunning) startAlgorithm(); if(e.code==='KeyC') resetGrid(); });
+    function resetGrid() { startNode = null; endNode = null; isRunning = false; initGrid(); }
+    function heuristic(a, b) { return Math.abs(a.row - b.row) + Math.abs(a.col - b.col); }
+    async function startAlgorithm() {
+        if (!startNode || !endNode || isRunning) return;
+        isRunning = true;
+        for(let row of grid) for(let node of row) node.updateNeighbors(grid);
+        let openSet = [startNode], closedSet = [];
+        startNode.g = 0; startNode.f = heuristic(startNode, endNode);
+        while (openSet.length > 0) {
+            let lowestIndex = 0;
+            for (let i = 0; i < openSet.length; i++) if (openSet[i].f < openSet[lowestIndex].f) lowestIndex = i;
+            let current = openSet[lowestIndex];
+            if (current === endNode) { reconstructPath(current); isRunning = false; return; }
+            openSet.splice(lowestIndex, 1); closedSet.push(current);
+            if (current !== startNode) { current.color = "red"; current.draw(); }
+            for (let neighbor of current.neighbors) {
+                if (closedSet.includes(neighbor)) continue;
+                let tempG = current.g + 1;
+                let newPath = false;
+                if (openSet.includes(neighbor)) {
+                    if (tempG < neighbor.g) { neighbor.g = tempG; newPath = true; }
+                } else {
+                    neighbor.g = tempG; newPath = true; openSet.push(neighbor);
+                    if (neighbor !== endNode) { neighbor.color = "green"; neighbor.draw(); }
+                }
+                if (newPath) { neighbor.f = neighbor.g + heuristic(neighbor, endNode); neighbor.previous = current; }
+            }
+            await new Promise(r => setTimeout(r, 10));
+        }
+        isRunning = false;
+    }
+    function reconstructPath(current) {
+        let temp = current;
+        while (temp.previous) { temp = temp.previous; if (temp !== startNode) { temp.color = "purple"; temp.draw(); } }
+        endNode.color = "turquoise"; endNode.draw();
+    }
+    initGrid();
+</script>
+</body>
+</html>
